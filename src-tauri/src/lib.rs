@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use tauri::{command, Window, Emitter, Manager};
+use tauri::{command, Window, Emitter};
+use tauri_plugin_updater::UpdaterExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -227,20 +228,19 @@ async fn check_for_updates(app: tauri::AppHandle) -> Result<String, String> {
     
     // 使用 Tauri 内置的 updater
     match app.updater() {
-        Some(updater) => {
+        Ok(updater) => {
             println!("🐛 [DEBUG] 更新器已初始化，开始检查更新...");
             
             match updater.check().await {
-                Ok(update) => {
-                    if update.is_update_available() {
-                        let version = update.version();
-                        let current_version = update.current_version();
-                        println!("🐛 [DEBUG] 发现新版本: {} (当前版本: {})", version, current_version);
-                        Ok(format!("发现新版本: {}", version))
-                    } else {
-                        println!("🐛 [DEBUG] 当前已是最新版本");
-                        Ok("当前已是最新版本".to_string())
-                    }
+                Ok(Some(update)) => {
+                    let version = &update.version;
+                    let current_version = &update.current_version;
+                    println!("🐛 [DEBUG] 发现新版本: {} (当前版本: {})", version, current_version);
+                    Ok(format!("发现新版本: {}", version))
+                }
+                Ok(None) => {
+                    println!("🐛 [DEBUG] 当前已是最新版本");
+                    Ok("当前已是最新版本".to_string())
                 }
                 Err(e) => {
                     println!("🐛 [ERROR] 检查更新失败: {}", e);
@@ -248,9 +248,9 @@ async fn check_for_updates(app: tauri::AppHandle) -> Result<String, String> {
                 }
             }
         }
-        None => {
-            println!("🐛 [ERROR] 更新器未初始化 - 可能未正确配置");
-            Err("更新器未初始化，请检查配置".to_string())
+        Err(e) => {
+            println!("🐛 [ERROR] 更新器初始化失败: {}", e);
+            Err(format!("更新器初始化失败: {}", e))
         }
     }
 }
@@ -261,27 +261,26 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<String, St
     println!("🐛 [DEBUG] 开始下载和安装更新");
     
     match app.updater() {
-        Some(updater) => {
+        Ok(updater) => {
             match updater.check().await {
-                Ok(update) => {
-                    if update.is_update_available() {
-                        println!("🐛 [DEBUG] 开始下载更新包...");
-                        
-                        // 下载并安装更新
-                        match update.download_and_install().await {
-                            Ok(_) => {
-                                println!("🐛 [DEBUG] 更新下载并安装成功");
-                                Ok("更新已安装，应用将重启".to_string())
-                            }
-                            Err(e) => {
-                                println!("🐛 [ERROR] 安装更新失败: {}", e);
-                                Err(format!("安装更新失败: {}", e))
-                            }
+                Ok(Some(update)) => {
+                    println!("🐛 [DEBUG] 开始下载更新包...");
+                    
+                    // 下载并安装更新
+                    match update.download_and_install(|_, _| {}, || {}).await {
+                        Ok(_) => {
+                            println!("🐛 [DEBUG] 更新下载并安装成功");
+                            Ok("更新已安装，应用将重启".to_string())
                         }
-                    } else {
-                        println!("🐛 [DEBUG] 没有可用更新");
-                        Ok("没有可用更新".to_string())
+                        Err(e) => {
+                            println!("🐛 [ERROR] 安装更新失败: {}", e);
+                            Err(format!("安装更新失败: {}", e))
+                        }
                     }
+                }
+                Ok(None) => {
+                    println!("🐛 [DEBUG] 没有可用更新");
+                    Ok("没有可用更新".to_string())
                 }
                 Err(e) => {
                     println!("🐛 [ERROR] 检查更新失败: {}", e);
@@ -289,9 +288,9 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<String, St
                 }
             }
         }
-        None => {
-            println!("🐛 [ERROR] 更新器未初始化");
-            Err("更新器未初始化".to_string())
+        Err(e) => {
+            println!("🐛 [ERROR] 更新器初始化失败: {}", e);
+            Err(format!("更新器初始化失败: {}", e))
         }
     }
 }
@@ -312,14 +311,27 @@ async fn get_update_info(app: tauri::AppHandle) -> Result<serde_json::Value, Str
     let current_version = env!("CARGO_PKG_VERSION");
     
     match app.updater() {
-        Some(updater) => {
+        Ok(updater) => {
             match updater.check().await {
-                Ok(update) => {
+                Ok(Some(update)) => {
                     let update_info = serde_json::json!({
                         "current_version": current_version,
-                        "latest_version": update.version(),
-                        "has_update": update.is_update_available(),
+                        "latest_version": update.version,
+                        "has_update": true,
                         "update_notes": "从 GitHub Releases 获取的最新版本",
+                        "download_url": "GitHub Releases",
+                        "release_date": chrono::Utc::now().format("%Y-%m-%d").to_string()
+                    });
+                    
+                    println!("🐛 [DEBUG] 更新信息: {:#?}", update_info);
+                    Ok(update_info)
+                }
+                Ok(None) => {
+                    let update_info = serde_json::json!({
+                        "current_version": current_version,
+                        "latest_version": current_version,
+                        "has_update": false,
+                        "update_notes": "当前已是最新版本",
                         "download_url": "GitHub Releases",
                         "release_date": chrono::Utc::now().format("%Y-%m-%d").to_string()
                     });
@@ -333,7 +345,10 @@ async fn get_update_info(app: tauri::AppHandle) -> Result<serde_json::Value, Str
                 }
             }
         }
-        None => Err("更新器未初始化".to_string())
+        Err(e) => {
+            println!("🐛 [ERROR] 更新器初始化失败: {}", e);
+            Err(format!("更新器初始化失败: {}", e))
+        }
     }
 }
 
