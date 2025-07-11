@@ -65,6 +65,16 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Debug - Check signing key
+        run: |
+          echo "🔍 检查签名密钥配置..."
+          echo "TAURI_SIGNING_PRIVATE_KEY 长度: ${#TAURI_SIGNING_PRIVATE_KEY}"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD 长度: ${#TAURI_SIGNING_PRIVATE_KEY_PASSWORD}"
+          echo "签名密钥前64个字符: ${TAURI_SIGNING_PRIVATE_KEY:0:64}..."
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -72,6 +82,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          projectPath: '.'
           tagName: ${{ github.ref_name }}
           releaseName: 'Tauri Test v__VERSION__'
           releaseBody: |
@@ -88,4 +99,51 @@ jobs:
             如果你已经安装了旧版本，应用会自动检查并提示更新。
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }} 
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+      - name: Debug - Check generated files
+        run: |
+          echo "🔍 检查生成的文件..."
+          echo "当前目录: $(pwd)"
+          echo "=== 查找所有生成的文件 ==="
+          find . -name "*.sig" -type f | head -20
+          find . -name "*.json" -type f | grep -E "(latest|update)" | head -10
+          find . -name "*.tar.gz" -type f | head -10
+          find . -name "*.dmg" -type f | head -10
+          find . -name "*.exe" -type f | head -10
+          find . -name "*.msi" -type f | head -10
+          
+          echo "=== 检查 target 目录结构 ==="
+          if [ -d "src-tauri/target" ]; then
+            find src-tauri/target -name "*.sig" -type f | head -10
+            find src-tauri/target -name "latest.json" -type f | head -5
+            
+            echo "=== 显示签名文件内容 ==="
+            for sig_file in $(find src-tauri/target -name "*.sig" -type f | head -3); do
+              echo "📄 签名文件: $sig_file"
+              ls -la "$sig_file"
+              echo "文件大小: $(wc -c < "$sig_file") 字节"
+              echo "内容预览:"
+              head -n 3 "$sig_file"
+              echo "---"
+            done
+            
+            echo "=== 显示 latest.json 内容 ==="
+            for json_file in $(find src-tauri/target -name "latest.json" -type f | head -2); do
+              echo "📄 JSON 文件: $json_file"
+              ls -la "$json_file"
+              echo "内容:"
+              cat "$json_file"
+              echo "---"
+            done
+          else
+            echo "❌ src-tauri/target 目录不存在"
+          fi
+          
+          echo "=== Bundle 目录结构 ==="
+          find src-tauri/target -name "bundle" -type d | head -5 | while read bundle_dir; do
+            echo "📁 Bundle 目录: $bundle_dir"
+            ls -la "$bundle_dir" 2>/dev/null || echo "无法访问目录"
+            find "$bundle_dir" -name "*.sig" -type f | head -5
+          done
+        continue-on-error: true 
