@@ -4028,7 +4028,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-test1"
-version = "0.0.1"
+version = "0.0.3"
 dependencies = [
  "chrono",
  "serde",
