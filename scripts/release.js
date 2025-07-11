@@ -25,11 +25,12 @@ function log(message, color = 'reset') {
 
 function execCommand(command, options = {}) {
   try {
-    return execSync(command, { 
+    const result = execSync(command, { 
       encoding: 'utf8', 
       stdio: options.silent ? 'pipe' : 'inherit',
       ...options 
-    }).trim();
+    });
+    return result ? result.trim() : '';
   } catch (error) {
     throw new Error(`命令执行失败: ${command}\n${error.message}`);
   }
